@@ -15,10 +15,10 @@ class WelcomeScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(
-                Icons.note_alt_outlined,
-                size: 120,
-                color: Theme.of(context).colorScheme.primary,
+              Image.asset(
+                'logo-round.png',
+                width: 120,
+                height: 120,
               ),
               const SizedBox(height: 32),
               Text(

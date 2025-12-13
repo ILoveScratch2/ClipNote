@@ -1,5 +1,7 @@
 # ClipNote
 
+<center><img src="logo-round.png" alt="ClipNote Logo" width="128" height="128"></center>
+
 > 一个跨平台的笔记和日记应用！
 
 ## 特性
