@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../services/storage_service.dart';
 
 /// 设置页面
@@ -38,6 +40,178 @@ class DataSecurityTab extends StatefulWidget {
 
 class _DataSecurityTabState extends State<DataSecurityTab> {
   final _storageService = StorageService();
+  String? _currentDirectory;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentDirectory();
+  }
+
+  Future<void> _loadCurrentDirectory() async {
+    final path = await _storageService.getNotebookPath();
+    if (mounted) {
+      setState(() {
+        _currentDirectory = path;
+      });
+    }
+  }
+
+  Future<void> _showChangeDirectoryDialog() async {
+    String? selectedPath;
+    String? errorMessage;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('更改数据目录'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('当前目录：'),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _currentDirectory ?? '未设置',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (selectedPath != null) ...[
+                const Text('新目录：'),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    selectedPath!,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (errorMessage != null) ...[
+                Text(
+                  errorMessage!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              FilledButton.icon(
+                onPressed: () async {
+                  setDialogState(() {
+                    errorMessage = null;
+                  });
+
+                  try {
+                    final result = await FilePicker.platform.getDirectoryPath();
+                    
+                    if (result == null) return;
+
+                    // 验证目录
+                    final directory = Directory(result);
+                    
+                    if (!await directory.exists()) {
+                      setDialogState(() {
+                        errorMessage = '目录不存在';
+                      });
+                      return;
+                    }
+
+                    // 检查权限
+                    try {
+                      final testFile = File('${directory.path}/.clipnote_test');
+                      await testFile.writeAsString('test');
+                      await testFile.delete();
+                    } catch (e) {
+                      setDialogState(() {
+                        errorMessage = '没有写入权限';
+                      });
+                      return;
+                    }
+
+                    setDialogState(() {
+                      selectedPath = result;
+                      errorMessage = null;
+                    });
+                  } catch (e) {
+                    setDialogState(() {
+                      errorMessage = '选择目录失败: $e';
+                    });
+                  }
+                },
+                icon: const Icon(Icons.folder_open),
+                label: const Text('选择目录'),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '更改目录后，不会自动迁移数据',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: selectedPath == null
+                  ? null
+                  : () => Navigator.of(context).pop(true),
+              child: const Text('确认更改'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == true && selectedPath != null) {
+      await _storageService.setNotebookPath(selectedPath!);
+      await _loadCurrentDirectory();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('数据目录已更改')),
+        );
+      }
+    }
+  }
 
   Future<void> _showResetPasswordDialog() async {
     final hasPassword = await _storageService.hasPassword();
@@ -227,6 +401,13 @@ class _DataSecurityTabState extends State<DataSecurityTab> {
               fontSize: 14,
             ),
           ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.folder_outlined),
+          title: const Text('数据目录'),
+          subtitle: Text(_currentDirectory ?? '未设置'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _showChangeDirectoryDialog,
         ),
         ListTile(
           leading: Icon(
