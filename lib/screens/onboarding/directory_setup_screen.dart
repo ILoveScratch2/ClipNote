@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import '../../services/storage_service.dart';
 
 /// 目录选择页面
@@ -43,7 +44,7 @@ class _DirectorySetupScreenState extends State<DirectorySetupScreen> {
 
       // 检查权限（尝试创建测试文件）
       try {
-        final testFile = File('${directory.path}/.clipnote_test');
+        final testFile = File(path.join(directory.path, '.clipnote_test'));
         await testFile.writeAsString('test');
         await testFile.delete();
       } catch (e) {
@@ -72,7 +73,7 @@ class _DirectorySetupScreenState extends State<DirectorySetupScreen> {
 
     try {
       final appDir = await getApplicationDocumentsDirectory();
-      final clipnoteDir = Directory('${appDir.path}/ClipNote');
+      final clipnoteDir = Directory(path.join(appDir.path, 'ClipNote'));
       
       // 创建目录如果不存在
       if (!await clipnoteDir.exists()) {
@@ -81,7 +82,7 @@ class _DirectorySetupScreenState extends State<DirectorySetupScreen> {
 
       // 验证权限
       try {
-        final testFile = File('${clipnoteDir.path}/.clipnote_test');
+        final testFile = File(path.join(clipnoteDir.path, '.clipnote_test'));
         await testFile.writeAsString('test');
         await testFile.delete();
       } catch (e) {

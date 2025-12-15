@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'services/storage_service.dart';
 import 'screens/onboarding/welcome_screen.dart';
 import 'screens/onboarding/password_setup_screen.dart';
@@ -10,6 +12,9 @@ import 'screens/settings/settings_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await StorageService.init();
+  await initializeDateFormatting('zh_CN', null);
+  Intl.defaultLocale = 'zh_CN';
+  
   runApp(const ClipNoteApp());
 }
 

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as path;
 import '../../services/storage_service.dart';
 
 /// 设置页面
@@ -133,7 +134,7 @@ class _DataSecurityTabState extends State<DataSecurityTab> {
 
                     // 检查权限
                     try {
-                      final testFile = File('${directory.path}/.clipnote_test');
+                      final testFile = File(path.join(directory.path, '.clipnote_test'));
                       await testFile.writeAsString('test');
                       await testFile.delete();
                     } catch (e) {
