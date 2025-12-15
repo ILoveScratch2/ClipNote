@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
@@ -128,6 +129,65 @@ class _HomeScreenState extends State<HomeScreen> {
     await _loadDiary(date);
   }
   
+  /// 构建日历日期单元格（支持右键菜单）
+  Widget _buildCalendarDay(
+    BuildContext context,
+    DateTime day,
+    DateTime focusedDay,
+    ColorScheme colorScheme, {
+    bool isToday = false,
+    bool isSelected = false,
+  }) {
+    final hasEvent = _diaryDates.any((d) => isSameDay(d, day));
+    
+    return GestureDetector(
+      onSecondaryTapDown: (details) {
+        _showDiaryContextMenu(context, day, details.globalPosition);
+      },
+      child: Container(
+        margin: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? colorScheme.primary
+              : isToday
+                  ? colorScheme.secondaryContainer
+                  : null,
+          shape: BoxShape.circle,
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Center(
+              child: Text(
+                '${day.day}',
+                style: TextStyle(
+                  color: isSelected
+                      ? colorScheme.onPrimary
+                      : isToday
+                          ? colorScheme.onSecondaryContainer
+                          : colorScheme.onSurface,
+                  fontWeight: isSelected || isToday ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+            if (hasEvent)
+              Positioned(
+                bottom: 4,
+                child: Container(
+                  width: 5,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: isSelected ? colorScheme.onPrimary : colorScheme.tertiary,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+  
   /// 构建按年月分组的日记列表
   Widget _buildDiaryList() {
     final colorScheme = Theme.of(context).colorScheme;
@@ -208,32 +268,37 @@ class _HomeScreenState extends State<HomeScreen> {
             ...dates.map((date) {
               final isSelected = isSameDay(date, _selectedDate);
               
-              return ListTile(
-                selected: isSelected,
-                selectedTileColor: colorScheme.secondaryContainer,
-                leading: Icon(
-                  Icons.article_outlined,
-                  color: isSelected 
-                      ? colorScheme.onSecondaryContainer 
-                      : colorScheme.onSurfaceVariant,
-                  size: 20,
-                ),
-                title: Text(
-                  DateFormat('dd日 EEEE', 'zh_CN').format(date),
-                  style: TextStyle(
-                    fontSize: 14,
+              return GestureDetector(
+                onSecondaryTapDown: (details) {
+                  _showDiaryContextMenu(context, date, details.globalPosition);
+                },
+                child: ListTile(
+                  selected: isSelected,
+                  selectedTileColor: colorScheme.secondaryContainer,
+                  leading: Icon(
+                    Icons.article_outlined,
                     color: isSelected 
                         ? colorScheme.onSecondaryContainer 
-                        : colorScheme.onSurface,
+                        : colorScheme.onSurfaceVariant,
+                    size: 20,
                   ),
+                  title: Text(
+                    DateFormat('dd日 EEEE', 'zh_CN').format(date),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isSelected 
+                          ? colorScheme.onSecondaryContainer 
+                          : colorScheme.onSurface,
+                    ),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 4,
+                  ),
+                  onTap: () async {
+                    await _switchToDate(date);
+                  },
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 4,
-                ),
-                onTap: () async {
-                  await _switchToDate(date);
-                },
               );
             }).toList(),
           ],
@@ -309,44 +374,8 @@ class _HomeScreenState extends State<HomeScreen> {
           drawer: useDrawer ? Drawer(
             child: Column(
               children: [
-                DrawerHeader(
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
-                  ),
-                  child: Center(
-                    child: Text(
-                      'ClipNote',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ),
-                ),
-                Expanded(child: _buildDiaryList()),
-              ],
-            ),
-          ) : null,
-          body: Row(
-            children: [
-              // 左侧边栏
-              if (!useDrawer)
-                Container(
-                  width: 320,
-                  decoration: BoxDecoration(
-                    color: colorScheme.surfaceContainerLow,
-                    border: Border(
-                      right: BorderSide(
-                        color: colorScheme.outlineVariant,
-                        width: 1,
-                      ),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      // 日历
-                      TableCalendar(
+                // 日历区域
+                TableCalendar(
                   firstDay: DateTime(2000),
                   lastDay: DateTime(2100),
                   focusedDay: _focusedDate,
@@ -386,11 +415,108 @@ class _HomeScreenState extends State<HomeScreen> {
                     weekendTextStyle: TextStyle(color: colorScheme.error),
                   ),
                   eventLoader: (day) {
-                        return _diaryDates.any((d) => isSameDay(d, day)) ? [day] : [];
-                      },
-                      onDaySelected: (selectedDay, focusedDay) async {
-                        await _switchToDate(selectedDay);
-                      },
+                    return _diaryDates.any((d) => isSameDay(d, day)) ? [day] : [];
+                  },
+                  calendarBuilders: CalendarBuilders(
+                    defaultBuilder: (context, day, focusedDay) {
+                      return _buildCalendarDay(context, day, focusedDay, colorScheme);
+                    },
+                    todayBuilder: (context, day, focusedDay) {
+                      return _buildCalendarDay(context, day, focusedDay, colorScheme, isToday: true);
+                    },
+                    selectedBuilder: (context, day, focusedDay) {
+                      return _buildCalendarDay(context, day, focusedDay, colorScheme, isSelected: true);
+                    },
+                  ),
+                  onDaySelected: (selectedDay, focusedDay) async {
+                    await _switchToDate(selectedDay);
+                    Navigator.pop(context); // 关闭Drawer
+                  },
+                  onPageChanged: (focusedDay) {
+                    setState(() => _focusedDate = focusedDay);
+                  },
+                ),
+                
+                Divider(height: 1, color: colorScheme.outlineVariant),
+                
+                Expanded(child: _buildDiaryList()),
+              ],
+            ),
+          ) : null,
+          body: Row(
+            children: [
+              // 左侧边栏
+              if (!useDrawer)
+                Container(
+                  width: 320,
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerLow,
+                    border: Border(
+                      right: BorderSide(
+                        color: colorScheme.outlineVariant,
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      // 日历
+                      TableCalendar(
+                        firstDay: DateTime(2000),
+                        lastDay: DateTime(2100),
+                        focusedDay: _focusedDate,
+                        selectedDayPredicate: (day) => isSameDay(_selectedDate, day),
+                        calendarFormat: CalendarFormat.month,
+                        locale: 'zh_CN',
+                        headerStyle: HeaderStyle(
+                          formatButtonVisible: false,
+                          titleCentered: true,
+                          titleTextStyle: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                  calendarStyle: CalendarStyle(
+                    todayDecoration: BoxDecoration(
+                      color: colorScheme.secondaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    todayTextStyle: TextStyle(
+                      color: colorScheme.onSecondaryContainer,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    selectedDecoration: BoxDecoration(
+                      color: colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    selectedTextStyle: TextStyle(
+                      color: colorScheme.onPrimary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    markerDecoration: BoxDecoration(
+                      color: colorScheme.tertiary,
+                      shape: BoxShape.circle,
+                    ),
+                    weekendTextStyle: TextStyle(color: colorScheme.error),
+                  ),
+                  eventLoader: (day) {
+                    return _diaryDates.any((d) => isSameDay(d, day)) ? [day] : [];
+                  },
+                  calendarBuilders: CalendarBuilders(
+                    defaultBuilder: (context, day, focusedDay) {
+                      return _buildCalendarDay(context, day, focusedDay, colorScheme);
+                    },
+                    todayBuilder: (context, day, focusedDay) {
+                      return _buildCalendarDay(context, day, focusedDay, colorScheme, isToday: true);
+                    },
+                    selectedBuilder: (context, day, focusedDay) {
+                      return _buildCalendarDay(context, day, focusedDay, colorScheme, isSelected: true);
+                    },
+                  ),
+                  onDaySelected: (selectedDay, focusedDay) async {
+                    await _switchToDate(selectedDay);
+                  },
                       onPageChanged: (focusedDay) {
                         setState(() => _focusedDate = focusedDay);
                       },
@@ -434,14 +560,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
   
-  /// Markdown工具栏（暂时没怎么写）
+  /// Markdown工具栏
   Widget _buildToolbar() {
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
+      color: colorScheme.surface,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-      ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -449,16 +573,25 @@ class _HomeScreenState extends State<HomeScreen> {
             _toolButton(Icons.format_bold, '粗体', () => _insertMarkdown('**', '**')),
             _toolButton(Icons.format_italic, '斜体', () => _insertMarkdown('*', '*')),
             _toolButton(Icons.format_strikethrough, '删除线', () => _insertMarkdown('~~', '~~')),
+            _toolButton(Icons.format_underline, '下划线', () => _insertMarkdown('<u>', '</u>')),
             const SizedBox(width: 8),
-            _toolButton(Icons.title, '标题', () => _insertMarkdown('# ', '')),
-            _toolButton(Icons.format_list_bulleted, '列表', () => _insertMarkdown('- ', '')),
-            _toolButton(Icons.format_list_numbered, '编号', () => _insertMarkdown('1. ', '')),
-            _toolButton(Icons.checklist, '任务', () => _insertMarkdown('- [ ] ', '')),
+            _toolButton(Icons.title, '大标题', () => _insertMarkdown('# ', '')),
+            _toolButton(Icons.format_size, '中标题', () => _insertMarkdown('## ', '')),
+            _toolButton(Icons.text_fields, '小标题', () => _insertMarkdown('### ', '')),
+            const SizedBox(width: 8),
+            _toolButton(Icons.format_list_bulleted, '无序列表', () => _insertMarkdown('- ', '')),
+            _toolButton(Icons.format_list_numbered, '有序列表', () => _insertMarkdown('1. ', '')),
+            _toolButton(Icons.checklist, '任务列表', () => _insertMarkdown('- [ ] ', '')),
             const SizedBox(width: 8),
             _toolButton(Icons.link, '链接', () => _insertMarkdown('[', '](url)')),
             _toolButton(Icons.image_outlined, '图片', () => _insertMarkdown('![', '](url)')),
-            _toolButton(Icons.code, '代码', () => _insertMarkdown('`', '`')),
+            _toolButton(Icons.code, '内联代码', () => _insertMarkdown('`', '`')),
+            _toolButton(Icons.code_outlined, '代码块', () => _insertMarkdown('\n```\n', '\n```\n')),
             _toolButton(Icons.format_quote, '引用', () => _insertMarkdown('> ', '')),
+            const SizedBox(width: 8),
+            _toolButton(Icons.table_chart, '表格', () => _insertMarkdown('\n| 列1 | 列2 |\n|-----|-----|\n| ', ' |  |\n')),
+            _toolButton(Icons.horizontal_rule, '分割线', () => _insertMarkdown('\n---\n', '')),
+            _toolButton(Icons.bookmark_outline, '引用日记', () => _insertDiaryLink()),
           ],
         ),
       ),
@@ -504,7 +637,86 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
   
-  /// 编辑器
+  /// 插入日记链接
+  void _insertDiaryLink() async {
+    // 显示日期选择器
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      locale: const Locale('zh', 'CN'),
+    );
+    
+    if (picked != null) {
+      final link = 'clipnote-note://${DateFormat('yyyy-MM-dd').format(picked)}';
+      _insertMarkdown('[${DateFormat('yyyy年MM月dd日').format(picked)}]($link)', '');
+    }
+  }
+  
+  /// 生成指定日期的链接
+  String _getDiaryLink(DateTime date) {
+    return 'clipnote-note://${DateFormat('yyyy-MM-dd').format(date)}';
+  }
+  
+  /// 复制日记链接到剪贴板
+  void _copyDiaryLink(DateTime date) async {
+    final link = _getDiaryLink(date);
+    await Clipboard.setData(ClipboardData(text: link));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已复制链接: $link'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+  
+  /// 引用日记到当前编辑
+  void _referenceDiary(DateTime date) {
+    if (!_isEditMode) {
+      setState(() => _isEditMode = true);
+    }
+    final link = _getDiaryLink(date);
+    final dateStr = DateFormat('yyyy年MM月dd日').format(date);
+    _insertMarkdown('[$dateStr]($link)', '');
+  }
+  
+  /// 显示日记右键菜单
+  void _showDiaryContextMenu(BuildContext context, DateTime date, Offset position) {
+    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    
+    showMenu(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(position.dx, position.dy, 0, 0),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        PopupMenuItem(
+          child: const ListTile(
+            leading: Icon(Icons.copy),
+            title: Text('复制链接'),
+            contentPadding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+          ),
+          onTap: () => _copyDiaryLink(date),
+        ),
+        PopupMenuItem(
+          child: const ListTile(
+            leading: Icon(Icons.bookmark_add),
+            title: Text('引用到当前日记'),
+            contentPadding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+          ),
+          onTap: () => _referenceDiary(date),
+        ),
+      ],
+    );
+  }
+  
+  /// 编辑器 - 带有基础Markdown语法视觉提示
   Widget _buildEditor() {
     final theme = Theme.of(context);
     return TextField(
@@ -517,10 +729,14 @@ class _HomeScreenState extends State<HomeScreen> {
         fontSize: 16,
         height: 1.8,
         color: theme.colorScheme.onSurface,
+        fontFamily: 'monospace', // 使用等宽字体方便编辑Markdown
       ),
       decoration: InputDecoration(
-        hintText: '开始写日记...',
-        hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+        hintText: '开始写日记...\n\n支持Markdown语法！',
+        hintStyle: TextStyle(
+          color: theme.colorScheme.onSurfaceVariant.withOpacity(0.5),
+          fontSize: 14,
+        ),
         border: InputBorder.none,
         contentPadding: const EdgeInsets.all(24),
       ),
@@ -560,43 +776,55 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     
-    return GestureDetector(
-      onTap: () {
-        setState(() => _isEditMode = true);
+    return Markdown(
+      data: _contentController.text,
+      selectable: true,
+      padding: const EdgeInsets.all(24),
+      onTapLink: (text, href, title) {
+        if (href != null && href.startsWith('clipnote-note://')) {
+          // 处理日记链接
+          final dateStr = href.substring('clipnote-note://'.length);
+          try {
+            final date = DateFormat('yyyy-MM-dd').parse(dateStr);
+            _switchToDate(date);
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('无效的日记链接: $href'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
       },
-      child: Markdown(
-        data: _contentController.text,
-        selectable: true,
-        padding: const EdgeInsets.all(24),
-        styleSheet: MarkdownStyleSheet(
-          p: TextStyle(
-            fontSize: 16,
-            height: 1.8,
-            color: theme.colorScheme.onSurface,
-          ),
-          h1: TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            color: theme.colorScheme.onSurface,
-          ),
-          h2: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: theme.colorScheme.onSurface,
-          ),
-          h3: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: theme.colorScheme.onSurface,
-          ),
-          blockquote: TextStyle(
-            color: theme.colorScheme.onSurfaceVariant,
-            fontStyle: FontStyle.italic,
-          ),
-          code: TextStyle(
-            backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            fontFamily: 'monospace',
-          ),
+      styleSheet: MarkdownStyleSheet(
+        p: TextStyle(
+          fontSize: 16,
+          height: 1.8,
+          color: theme.colorScheme.onSurface,
+        ),
+        h1: TextStyle(
+          fontSize: 28,
+          fontWeight: FontWeight.bold,
+          color: theme.colorScheme.onSurface,
+        ),
+        h2: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: theme.colorScheme.onSurface,
+        ),
+        h3: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: theme.colorScheme.onSurface,
+        ),
+        blockquote: TextStyle(
+          color: theme.colorScheme.onSurfaceVariant,
+          fontStyle: FontStyle.italic,
+        ),
+        code: TextStyle(
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          fontFamily: 'monospace',
         ),
       ),
     );
