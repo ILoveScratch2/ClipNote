@@ -7,22 +7,22 @@ import 'storage_service.dart';
 class DiaryService {
   final StorageService _storage = StorageService();
   
-  /// 获取日记文件路径 - YYYY-MM-DD.md
+  /// 获取日记文件路径 - YYYY-MM-DD.json (Delta 格式)
   Future<String> _getFilePath(DateTime date) async {
     final directory = await _storage.getNotebookPath();
     if (directory == null) {
       throw Exception('数据目录未设置');
     }
     
-    // 日记放在diary （主目录我打算放点别的）
+    // 日记放在diary
     final diaryDir = path.join(directory, 'diary');
     await Directory(diaryDir).create(recursive: true);
     
     final fileName = DateFormat('yyyy-MM-dd').format(date);
-    return path.join(diaryDir, '$fileName.md');
+    return path.join(diaryDir, '$fileName.json');
   }
   
-  /// 读取日记内容
+  /// 读取日记内容 - 返回 Delta JSON 字符串
   Future<String?> getDiary(DateTime date) async {
     try {
       final filePath = await _getFilePath(date);
@@ -38,16 +38,15 @@ class DiaryService {
     }
   }
   
-  /// 保存日记内容
-  Future<void> saveDiary(DateTime date, String content) async {
+  /// 保存日记内容 - 接收 Delta JSON 字符串
+  Future<void> saveDiary(DateTime date, String deltaJson) async {
     final filePath = await _getFilePath(date);
     final file = File(filePath);
     
     // 确保目录存在
     await file.parent.create(recursive: true);
     
-    // 写！
-    await file.writeAsString(content);
+    await file.writeAsString(deltaJson);
   }
   
   /// 删除日记
@@ -78,7 +77,7 @@ class DiaryService {
     final dateFormat = DateFormat('yyyy-MM-dd');
     
     await for (final entity in dir.list()) {
-      if (entity is File && entity.path.endsWith('.md')) {
+      if (entity is File && entity.path.endsWith('.json')) {
         final fileName = path.basenameWithoutExtension(entity.path);
         try {
           final date = dateFormat.parse(fileName);

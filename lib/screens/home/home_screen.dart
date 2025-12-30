@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
+import 'package:flutter_quill_extensions/flutter_quill_extensions.dart';
+import 'dart:convert';
 import '../../services/diary_service.dart';
 
 /// 主界面
@@ -15,8 +17,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final DiaryService _diaryService = DiaryService();
-  final TextEditingController _contentController = TextEditingController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  late quill.QuillController _quillController;
   
   DateTime _selectedDate = DateTime.now();
   DateTime _focusedDate = DateTime.now();
@@ -27,13 +29,17 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _quillController = quill.QuillController(
+      document: quill.Document(),
+      selection: const TextSelection.collapsed(offset: 0),
+    );
     _loadDiaryDates();
     _loadDiary(_selectedDate);
   }
   
   @override
   void dispose() {
-    _contentController.dispose();
+    _quillController.dispose();
     super.dispose();
   }
   
@@ -49,22 +55,34 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadDiary(DateTime date) async {
     setState(() => _isLoading = true);
     
-    final content = await _diaryService.getDiary(date);
-    _contentController.text = content ?? '';
+    final deltaJson = await _diaryService.getDiary(date);
+    
+    if (deltaJson != null && deltaJson.isNotEmpty) {
+      try {
+        final deltaData = jsonDecode(deltaJson);
+        _quillController.document = quill.Document.fromJson(deltaData);
+      } catch (e) {
+        _quillController.document = quill.Document();
+      }
+    } else {
+      _quillController.document = quill.Document();
+    }
+    
+    _quillController.moveCursorToStart();
     
     setState(() {
       _isLoading = false;
       _isEditMode = false; // 加载后默认预览模式
+      _quillController.readOnly = true;
     });
   }
   
   /// 保存当前日记
   Future<void> _saveDiary() async {
-    if (_contentController.text.trim().isEmpty) {
-      return;
-    }
+    final delta = _quillController.document.toDelta();
+    final deltaJson = jsonEncode(delta.toJson());
     
-    await _diaryService.saveDiary(_selectedDate, _contentController.text);
+    await _diaryService.saveDiary(_selectedDate, deltaJson);
     await _loadDiaryDates();
     
     if (mounted) {
@@ -100,7 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
     
     if (confirm == true) {
       await _diaryService.deleteDiary(_selectedDate);
-      _contentController.clear();
+      _quillController.document = quill.Document();
       await _loadDiaryDates();
       
       if (mounted) {
@@ -117,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 切换到指定日期
   Future<void> _switchToDate(DateTime date) async {
     // 保存当前编辑的内容
-    if (_contentController.text.trim().isNotEmpty && _isEditMode) {
+    if (_isEditMode && _quillController.document.toPlainText().trim().isNotEmpty) {
       await _saveDiary();
     }
     
@@ -142,6 +160,9 @@ class _HomeScreenState extends State<HomeScreen> {
     
     return GestureDetector(
       onSecondaryTapDown: (details) {
+        _showDiaryContextMenu(context, day, details.globalPosition);
+      },
+      onLongPressStart: (details) {
         _showDiaryContextMenu(context, day, details.globalPosition);
       },
       child: Container(
@@ -197,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            '还没有日记\n开始写第一篇吧',
+            '还没有日记\n开始写第一篇吧！',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: colorScheme.onSurfaceVariant,
@@ -272,6 +293,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 onSecondaryTapDown: (details) {
                   _showDiaryContextMenu(context, date, details.globalPosition);
                 },
+                onLongPressStart: (details) {
+                  _showDiaryContextMenu(context, date, details.globalPosition);
+                },
                 child: ListTile(
                   selected: isSelected,
                   selectedTileColor: colorScheme.secondaryContainer,
@@ -334,11 +358,14 @@ class _HomeScreenState extends State<HomeScreen> {
               style: theme.textTheme.titleLarge,
             ),
             actions: [
-              if (!_isEditMode && _contentController.text.trim().isNotEmpty)
+              if (!_isEditMode && _quillController.document.toPlainText().trim().isNotEmpty)
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
                   onPressed: () {
-                    setState(() => _isEditMode = true);
+                    setState(() {
+                      _isEditMode = true;
+                      _quillController.readOnly = false;
+                    });
                   },
                   tooltip: '编辑',
                 ),
@@ -346,7 +373,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 IconButton(
                   icon: const Icon(Icons.visibility_outlined),
                   onPressed: () {
-                    setState(() => _isEditMode = false);
+                    setState(() {
+                      _isEditMode = false;
+                      _quillController.readOnly = true;
+                    });
                   },
                   tooltip: '预览',
                 ),
@@ -356,7 +386,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   tooltip: '保存',
                 ),
               ],
-              if (_contentController.text.trim().isNotEmpty)
+              if (_quillController.document.toPlainText().trim().isNotEmpty)
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: _deleteDiary,
@@ -536,12 +566,6 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                 child: Column(
                   children: [
-                    // Markdown工具栏
-                    if (_isEditMode) _buildToolbar(),
-                    
-                    if (_isEditMode)
-                      Divider(height: 1, color: colorScheme.outlineVariant),
-                    
                     // 编辑/预览区域
                     Expanded(
                       child: _isLoading
@@ -558,100 +582,6 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
-  }
-  
-  /// Markdown工具栏
-  Widget _buildToolbar() {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      color: colorScheme.surface,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _toolButton(Icons.format_bold, '粗体', () => _insertMarkdown('**', '**')),
-            _toolButton(Icons.format_italic, '斜体', () => _insertMarkdown('*', '*')),
-            _toolButton(Icons.format_strikethrough, '删除线', () => _insertMarkdown('~~', '~~')),
-            _toolButton(Icons.format_underline, '下划线', () => _insertMarkdown('<u>', '</u>')),
-            const SizedBox(width: 8),
-            _toolButton(Icons.title, '大标题', () => _insertMarkdown('# ', '')),
-            _toolButton(Icons.format_size, '中标题', () => _insertMarkdown('## ', '')),
-            _toolButton(Icons.text_fields, '小标题', () => _insertMarkdown('### ', '')),
-            const SizedBox(width: 8),
-            _toolButton(Icons.format_list_bulleted, '无序列表', () => _insertMarkdown('- ', '')),
-            _toolButton(Icons.format_list_numbered, '有序列表', () => _insertMarkdown('1. ', '')),
-            _toolButton(Icons.checklist, '任务列表', () => _insertMarkdown('- [ ] ', '')),
-            const SizedBox(width: 8),
-            _toolButton(Icons.link, '链接', () => _insertMarkdown('[', '](url)')),
-            _toolButton(Icons.image_outlined, '图片', () => _insertMarkdown('![', '](url)')),
-            _toolButton(Icons.code, '内联代码', () => _insertMarkdown('`', '`')),
-            _toolButton(Icons.code_outlined, '代码块', () => _insertMarkdown('\n```\n', '\n```\n')),
-            _toolButton(Icons.format_quote, '引用', () => _insertMarkdown('> ', '')),
-            const SizedBox(width: 8),
-            _toolButton(Icons.table_chart, '表格', () => _insertMarkdown('\n| 列1 | 列2 |\n|-----|-----|\n| ', ' |  |\n')),
-            _toolButton(Icons.horizontal_rule, '分割线', () => _insertMarkdown('\n---\n', '')),
-            _toolButton(Icons.bookmark_outline, '引用日记', () => _insertDiaryLink()),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  /// 工具栏按钮
-  Widget _toolButton(IconData icon, String tooltip, VoidCallback onPressed) {
-    return IconButton(
-      icon: Icon(icon, size: 20),
-      tooltip: tooltip,
-      onPressed: onPressed,
-      visualDensity: VisualDensity.compact,
-    );
-  }
-  
-  /// 插入Markdown语法
-  void _insertMarkdown(String before, String after) {
-    final selection = _contentController.selection;
-    final text = _contentController.text;
-    
-    if (selection.isValid) {
-      final selectedText = selection.textInside(text);
-      final newText = text.replaceRange(
-        selection.start,
-        selection.end,
-        '$before$selectedText$after',
-      );
-      
-      _contentController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(
-          offset: selection.start + before.length + selectedText.length + after.length,
-        ),
-      );
-    } else {
-      // 没有选中文本，直接插入
-      final newText = text + before + after;
-      _contentController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: newText.length - after.length),
-      );
-    }
-  }
-  
-  /// 插入日记链接
-  void _insertDiaryLink() async {
-    // 显示日期选择器
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-      locale: const Locale('zh', 'CN'),
-    );
-    
-    if (picked != null) {
-      final link = 'clipnote-note://${DateFormat('yyyy-MM-dd').format(picked)}';
-      _insertMarkdown('[${DateFormat('yyyy年MM月dd日').format(picked)}]($link)', '');
-    }
   }
   
   /// 生成指定日期的链接
@@ -680,7 +610,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final link = _getDiaryLink(date);
     final dateStr = DateFormat('yyyy年MM月dd日').format(date);
-    _insertMarkdown('[$dateStr]($link)', '');
+    final index = _quillController.selection.baseOffset;
+    _quillController.replaceText(index, 0, dateStr, null);
+    _quillController.formatText(index, dateStr.length, quill.LinkAttribute(link));
   }
   
   /// 显示日记右键菜单
@@ -716,41 +648,82 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
   
-  /// 编辑器 - 带有基础Markdown语法视觉提示
+  /// 编辑器 - Quill
   Widget _buildEditor() {
     final theme = Theme.of(context);
-    return TextField(
-      controller: _contentController,
-      maxLines: null,
-      expands: true,
-      autofocus: true,
-      textAlignVertical: TextAlignVertical.top,
-      style: TextStyle(
-        fontSize: 16,
-        height: 1.8,
-        color: theme.colorScheme.onSurface,
-        fontFamily: 'monospace', // 使用等宽字体方便编辑Markdown
-      ),
-      decoration: InputDecoration(
-        hintText: '开始写日记...\n\n支持Markdown语法！',
-        hintStyle: TextStyle(
-          color: theme.colorScheme.onSurfaceVariant.withOpacity(0.5),
-          fontSize: 14,
-        ),
-        border: InputBorder.none,
-        contentPadding: const EdgeInsets.all(24),
+    return Container(
+      color: theme.colorScheme.surface,
+      child: Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerLow,
+              border: Border(
+                bottom: BorderSide(
+                  color: theme.colorScheme.outlineVariant,
+                  width: 1,
+                ),
+              ),
+            ),
+            child: quill.QuillSimpleToolbar(
+              controller: _quillController,
+              config: quill.QuillSimpleToolbarConfig(
+                showAlignmentButtons: true,
+                showBackgroundColorButton: false,
+                showBoldButton: true,
+                showCenterAlignment: false,
+                showClearFormat: true,
+                showCodeBlock: true,
+                showColorButton: false,
+                showFontFamily: false,
+                showFontSize: false,
+                showHeaderStyle: true,
+                showInlineCode: true,
+                showItalicButton: true,
+                showJustifyAlignment: false,
+                showLeftAlignment: false,
+                showLink: true,
+                showListBullets: true,
+                showListCheck: true,
+                showListNumbers: true,
+                showQuote: true,
+                showRightAlignment: false,
+                showStrikeThrough: true,
+                showUnderLineButton: true,
+                embedButtons: FlutterQuillEmbeds.toolbarButtons(
+                  videoButtonOptions: null,
+                  cameraButtonOptions: null,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: quill.QuillEditor.basic(
+                controller: _quillController,
+                config: quill.QuillEditorConfig(
+                  embedBuilders: [...FlutterQuillEmbeds.editorBuilders()],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
   
-  /// 预览 - 点击切换为编辑模式
+  /// 预览 - 只读 Quill
   Widget _buildPreview() {
     final theme = Theme.of(context);
     
-    if (_contentController.text.trim().isEmpty) {
+    if (_quillController.document.toPlainText().trim().isEmpty) {
       return GestureDetector(
         onTap: () {
-          setState(() => _isEditMode = true);
+          setState(() {
+            _isEditMode = true;
+            _quillController.readOnly = false;
+          });
         },
         behavior: HitTestBehavior.opaque,
         child: Center(
@@ -776,55 +749,41 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     
-    return Markdown(
-      data: _contentController.text,
-      selectable: true,
+    return Container(
+      color: theme.colorScheme.surface,
       padding: const EdgeInsets.all(24),
-      onTapLink: (text, href, title) {
-        if (href != null && href.startsWith('clipnote-note://')) {
-          // 处理日记链接
-          final dateStr = href.substring('clipnote-note://'.length);
-          try {
-            final date = DateFormat('yyyy-MM-dd').parse(dateStr);
-            _switchToDate(date);
-          } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('无效的日记链接: $href'),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-        }
-      },
-      styleSheet: MarkdownStyleSheet(
-        p: TextStyle(
-          fontSize: 16,
-          height: 1.8,
-          color: theme.colorScheme.onSurface,
-        ),
-        h1: TextStyle(
-          fontSize: 28,
-          fontWeight: FontWeight.bold,
-          color: theme.colorScheme.onSurface,
-        ),
-        h2: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: theme.colorScheme.onSurface,
-        ),
-        h3: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: theme.colorScheme.onSurface,
-        ),
-        blockquote: TextStyle(
-          color: theme.colorScheme.onSurfaceVariant,
-          fontStyle: FontStyle.italic,
-        ),
-        code: TextStyle(
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-          fontFamily: 'monospace',
+      child: quill.QuillEditor.basic(
+        controller: _quillController,
+        config: quill.QuillEditorConfig(
+          embedBuilders: [...FlutterQuillEmbeds.editorBuilders()],
+          onLaunchUrl: (url) async {
+            String actualUrl = url;
+            if (url.startsWith('https://clipnote-note://')) {
+              actualUrl = url.substring('https://'.length);
+            } else if (url.startsWith('http://clipnote-note://')) {
+              actualUrl = url.substring('http://'.length);
+            }
+            
+            if (actualUrl.startsWith('clipnote-note://')) {
+              final dateStr = actualUrl.substring('clipnote-note://'.length);
+              
+              try {
+                final date = DateFormat('yyyy-MM-dd').parse(dateStr);
+                await _switchToDate(date);
+                return;
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('无效的日记链接: $url'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+                return;
+              }
+            }
+          },
         ),
       ),
     );
